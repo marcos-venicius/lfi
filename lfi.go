@@ -8,13 +8,14 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
+
+	"github.com/marcos-venicius/lfi/formatter"
 )
 
 var wg sync.WaitGroup
 
-var kongLogRegex = regexp.MustCompile(`^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3} - - \[\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4}\] "\w+ .*? HTTP\/\d.\d" \d+ \d+ ".*?" ".*?"$`)
+var kongLogRegex = regexp.MustCompile(`^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) - - \[(\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4})\] "(\w+) (.*?) (HTTP\/\d.\d)" (\d+) (\d+) "(.*?)" "(.*?)"$`)
 var ipRegex = regexp.MustCompile(`^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}`)
 var ipRegexFull = regexp.MustCompile(`^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}$`)
 var timeRegex = regexp.MustCompile(`\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4}`)
@@ -90,65 +91,39 @@ func isValidIP(ip string) bool {
 func parseKongLogLine(line string) (log_t, error) {
 	log := log_t{}
 
-	if !kongLogRegex.MatchString(line) {
+	matches := kongLogRegex.FindStringSubmatch(line)
+
+	if len(matches) != 10 {
 		return log, errors.New(line)
 	}
 
-	loc := ipRegex.FindStringIndex(line)
+	log.ip = matches[1]
+	log.time = matches[2]
 
-	log.ip = line[loc[0]:loc[1]]
-	line = line[loc[1]+5:]
-
-	loc = timeRegex.FindStringIndex(line)
-
-	log.time = line[loc[0]:loc[1]]
-
-	line = line[loc[1]+2:]
-
-	loc = stringRegex.FindStringIndex(line)
-
-	split := strings.Split(line[loc[0]+1:loc[1]-1], " ")
-
-	if statusCode, err := stringMethodToType(split[0]); err == nil {
-		log.method = statusCode
+	if method, err := stringMethodToType(matches[3]); err == nil {
+		log.method = method
 	} else {
 		return log, err
 	}
 
-	log.resource = split[1]
-	log.version = split[2]
+	log.resource = matches[4]
+	log.version = matches[5]
 
-	line = line[loc[1]+1:]
-
-	loc = statusCodeRegex.FindStringIndex(line)
-
-	if n, err := strconv.ParseInt(line[loc[0]:loc[1]], 10, 32); err == nil {
+	if n, err := strconv.ParseInt(matches[6], 10, 32); err == nil {
 		log.statusCode = int(n)
 	} else {
 		return log, err
 	}
 
-	line = line[loc[1]+1:]
-
-	loc = sizeRegex.FindStringIndex(line)
-
-	if n, err := strconv.ParseInt(line[loc[0]:loc[1]], 10, 32); err == nil {
+	if n, err := strconv.ParseInt(matches[7], 10, 32); err == nil {
 		log.size = int(n)
 	} else {
 		return log, err
 	}
 
-	line = line[loc[1]+1:]
+	log.host = matches[8]
 
-	loc = stringRegex.FindStringIndex(line)
-
-	log.host = line[loc[0]+1 : loc[1]-1]
-
-	line = line[loc[1]+1:]
-
-	loc = stringRegex.FindStringIndex(line)
-
-	log.userAgent = line[loc[0]+1 : loc[1]-1]
+	log.userAgent = matches[9]
 
 	return log, nil
 }
@@ -200,64 +175,35 @@ func isAlpha(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-func parseFormatString(format string, log log_t) {
-	for i := 0; i < len(format); i += 1 {
-		if format[i] == '%' {
-			j := i + 1
-
-			for ; j < len(format); j += 1 {
-				if !isAlpha(format[j]) {
-					break
-				}
-			}
-
-			label := format[i+1 : j]
-
-			switch label {
-			case "time":
-				fmt.Printf(log.time)
-			case "ip":
-				fmt.Printf(log.ip)
-			case "method":
-				fmt.Printf(methodDisplay(log.method))
-			case "resource":
-				fmt.Printf(log.resource)
-			case "version":
-				fmt.Printf(log.version)
-			case "status":
-				fmt.Printf("%d", log.statusCode)
-			case "size":
-				fmt.Printf("%d", log.size)
-			case "host":
-				fmt.Printf(log.host)
-			case "agent":
-				fmt.Printf(log.userAgent)
-			default:
-				fmt.Fprintf(os.Stderr, "error: invalid formatting string at label %%%s\n", label)
-				os.Exit(1)
-			}
-
-			i = j - 1
-		} else if format[i] == '\\' {
-			if i+1 >= len(format) {
-				fmt.Fprintf(os.Stderr, "error: untermiated back slashed char\n")
-				os.Exit(1)
-			}
-
-			switch format[i+1] {
-			case 't':
-				fmt.Printf("\t")
-			default:
-				fmt.Fprintf(os.Stderr, "error: invalid special char \\%c\n", format[i+1])
-				os.Exit(1)
-			}
-
-			i += 1
-		} else if format[i] == ' ' {
-			fmt.Printf(" ")
+func displayLogsBasedOnFormatting(tokens []string, log log_t) {
+	for _, token := range tokens {
+		if token[0] == '\'' {
+			fmt.Print(token[1 : len(token)-1])
+		} else if token[0] == ' ' {
+			fmt.Print(token)
 		} else {
-			fmt.Fprintf(os.Stderr, "error: invalid formatting string at char \"%c\"\n", format[i])
-			os.Exit(1)
+			switch token {
+			case "%time":
+				fmt.Print(log.time)
+			case "%ip":
+				fmt.Print(log.ip)
+			case "%method":
+				fmt.Print(methodDisplay(log.method))
+			case "%resource":
+				fmt.Print(log.resource)
+			case "%version":
+				fmt.Print(log.version)
+			case "%status":
+				fmt.Print(log.statusCode)
+			case "%size":
+				fmt.Print(log.size)
+			case "%host":
+				fmt.Print(log.host)
+			case "%agent":
+				fmt.Print(log.userAgent)
+			default:
+				fmt.Print(token)
+			}
 		}
 	}
 
@@ -283,7 +229,7 @@ func worker(logs chan []byte, flags flags_t, filters filters_t) {
 				fmt.Println(err)
 			}
 		} else if filterLog(log, filters) {
-			parseFormatString(flags.format, log)
+			displayLogsBasedOnFormatting(flags.formatTokens, log)
 		}
 	}
 }
@@ -308,7 +254,7 @@ type filters_t struct {
 }
 
 type flags_t struct {
-	format            string
+	formatTokens      []string
 	displayErrorLines bool
 }
 
@@ -366,15 +312,24 @@ func main() {
 			filters.ip.value = *ip
 			filters.ip.mode = filter_mode_eq
 		} else {
-			fmt.Fprintf(os.Stderr, "error: invalid ip format")
+			fmt.Fprintf(os.Stderr, "error: invalid ip format\n")
 			os.Exit(1)
 		}
+	}
+
+	logFormatter := formatter.CreateFormatter([]string{"time", "ip", "method", "resource", "version", "status", "size", "host", "agent"})
+
+	tokens, err := logFormatter.ParseFormatString(*format)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		os.Exit(1)
 	}
 
 	logs := make(chan []byte, 0)
 
 	user_flags := flags_t{
-		format:            *format,
+		formatTokens:      tokens,
 		displayErrorLines: !*displayErrors,
 	}
 
