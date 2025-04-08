@@ -41,3 +41,28 @@ I'll add more options later, like:
 - [ ] allow the user to search by size equal/not equal/greater than/greater than or equal/less than/less than or equal
 - [ ] allow the user to search by a host equal/not equal
 - [ ] allow the user to format the date time
+
+# Documentation
+
+Here I'll documentate all the features and how to use it.
+
+
+### Formatting
+
+We have the following tokens to format:
+
+- labels `%time %ip %method %resource %version %status %size %host %agent`.
+    - `%time` display the log date and time
+    - `%ip` display the log ip
+    - `%method` display the request method
+    - `%resource` display the request url path resource
+    - `%version` display the http version
+    - `%status` display the response status code
+    - `%size` display the size of the response
+    - `%host` display the host
+    - `%agent` display the user agent
+
+To add strings, you can just use `'this is a string'`. To escape them, you can do `'this is \'my string\''`.
+
+
+Line breaks with `\n`. Tabs with `\t`. And you can Add as many spaces as you want.
