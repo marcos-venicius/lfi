@@ -10,4 +10,9 @@ The language should be able to have a syntax like:
 (size > 0 and size < 1024 and method = :get: and status = 200) or (method = :post: and size = 0 and status = 204)
 ```
 
-This will have 
+- Integer (positive integers only)
+- Atom (:name:)
+- Binary operators (>, >=, <, <=, =, !)
+- Keywords (and, or)
+- Parenthesis
+
