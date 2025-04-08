@@ -1,2 +1,4 @@
 *.log
 lfi
+env/
+__pycache__
