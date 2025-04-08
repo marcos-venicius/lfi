@@ -168,6 +168,35 @@ func filterLog(log log_t, filters filters_t) bool {
 		}
 	}
 
+	for _, sizeFilter := range filters.size {
+		switch sizeFilter.mode {
+		case filter_mode_eq:
+			if !(log.size == sizeFilter.value) {
+				return false
+			}
+		case filter_mode_ne:
+			if !(log.size != sizeFilter.value) {
+				return false
+			}
+		case filter_mode_lt:
+			if !(log.size < sizeFilter.value) {
+				return false
+			}
+		case filter_mode_gt:
+			if !(log.size > sizeFilter.value) {
+				return false
+			}
+		case filter_mode_lte:
+			if !(log.size <= sizeFilter.value) {
+				return false
+			}
+		case filter_mode_gte:
+			if !(log.size >= sizeFilter.value) {
+				return false
+			}
+		}
+	}
+
 	return true
 }
 
@@ -237,8 +266,12 @@ func worker(logs chan []byte, flags flags_t, filters filters_t) {
 type filter_mode_t int
 
 const (
-	filter_mode_eq filter_mode_t = iota
-	filter_mode_ne filter_mode_t = iota
+	filter_mode_eq  filter_mode_t = iota
+	filter_mode_ne  filter_mode_t = iota
+	filter_mode_gt  filter_mode_t = iota
+	filter_mode_lt  filter_mode_t = iota
+	filter_mode_gte filter_mode_t = iota
+	filter_mode_lte filter_mode_t = iota
 )
 
 type filter_t[T int | method_t | string] struct {
@@ -251,6 +284,7 @@ type filters_t struct {
 	statusCode filter_t[int]
 	method     filter_t[method_t]
 	ip         filter_t[string]
+	size       []filter_t[int]
 }
 
 type flags_t struct {
@@ -258,14 +292,33 @@ type flags_t struct {
 	displayErrorLines bool
 }
 
+type filter_flag_t[T int] struct {
+	flag *T
+	mode filter_mode_t
+}
+
+// TODO: create a built-in language to accept "and", "or" and queries
+// today, we only accept and operations to all filters
 func main() {
-	filters := filters_t{}
+	filters := filters_t{
+		size: make([]filter_t[int], 0, 6),
+	}
+
+	sizeEq := flag.Int("fz", -1, "filter by a specific response size. when -1 the filter is not used")
+	sizeNe := flag.Int("nefz", -1, "filter by logs where the response size is not equal to the provided one. when -1 the filter is not used")
+	sizeGt := flag.Int("gtfz", -1, "filter by logs where the response size is greater than the provided one. when -1 the filter is not used")
+	sizeLt := flag.Int("ltfz", -1, "filter by logs where the response size is less than the provided one. when -1 the filter is not used")
+	sizeGte := flag.Int("gtefz", -1, "filter by logs where the response size is greater than or equal to the provided one. when -1 the filter is not used")
+	sizeLte := flag.Int("ltefz", -1, "filter by logs where the response size is less than or equal to the provided one. when -1 the filter is not used")
 
 	status := flag.Int("fs", -1, "filter by a specific status code. when -1 the filter is not used")
 	statusNe := flag.Int("nefs", -1, "filter by logs where the status code is not equal to the provided one. when -1 the filter is not used")
+
 	method := flag.String("fm", "", "filter by a specific method")
 	methodNe := flag.String("nefm", "", "filter by logs where the method is not equal to the provided one")
+
 	ip := flag.String("fi", "", "filter by a specific ip")
+
 	displayErrors := flag.Bool("de", false, "disable error lines output")
 
 	format := flag.String("f", "%time %ip %method %resource %version %status %size %host %agent", "format the log in a specific way")
@@ -282,6 +335,25 @@ func main() {
 		filters.statusCode.active = true
 		filters.statusCode.value = *statusNe
 		filters.statusCode.mode = filter_mode_ne
+	}
+
+	sizeFlags := []filter_flag_t[int]{
+		{sizeEq, filter_mode_eq},
+		{sizeNe, filter_mode_ne},
+		{sizeGt, filter_mode_gt},
+		{sizeLt, filter_mode_lt},
+		{sizeGte, filter_mode_gte},
+		{sizeLte, filter_mode_lte},
+	}
+
+	for _, flag := range sizeFlags {
+		if *flag.flag != -1 {
+			filters.size = append(filters.size, filter_t[int]{
+				active: true,
+				value:  *flag.flag,
+				mode:   flag.mode,
+			})
+		}
 	}
 
 	if *method != "" {
