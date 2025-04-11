@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/marcos-venicius/lfi/formatter"
+	"github.com/marcos-venicius/lfi/quang"
 )
 
 var wg sync.WaitGroup
@@ -128,78 +129,6 @@ func parseKongLogLine(line string) (log_t, error) {
 	return log, nil
 }
 
-func filterLog(log log_t, filters filters_t) bool {
-	if filters.statusCode.active {
-		switch filters.statusCode.mode {
-		case filter_mode_eq:
-			if log.statusCode != filters.statusCode.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.statusCode == filters.statusCode.value {
-				return false
-			}
-		}
-	}
-
-	if filters.method.active {
-		switch filters.method.mode {
-		case filter_mode_eq:
-			if log.method != filters.method.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.method == filters.method.value {
-				return false
-			}
-		}
-	}
-
-	if filters.ip.active {
-		switch filters.ip.mode {
-		case filter_mode_eq:
-			if log.ip != filters.ip.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.ip == filters.ip.value {
-				return false
-			}
-		}
-	}
-
-	for _, sizeFilter := range filters.size {
-		switch sizeFilter.mode {
-		case filter_mode_eq:
-			if !(log.size == sizeFilter.value) {
-				return false
-			}
-		case filter_mode_ne:
-			if !(log.size != sizeFilter.value) {
-				return false
-			}
-		case filter_mode_lt:
-			if !(log.size < sizeFilter.value) {
-				return false
-			}
-		case filter_mode_gt:
-			if !(log.size > sizeFilter.value) {
-				return false
-			}
-		case filter_mode_lte:
-			if !(log.size <= sizeFilter.value) {
-				return false
-			}
-		case filter_mode_gte:
-			if !(log.size >= sizeFilter.value) {
-				return false
-			}
-		}
-	}
-
-	return true
-}
-
 func isAlpha(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
@@ -239,7 +168,7 @@ func displayLogsBasedOnFormatting(tokens []string, log log_t) {
 	fmt.Println()
 }
 
-func worker(logs chan []byte, flags flags_t, filters filters_t) {
+func worker(logs chan []byte, q quang.Quang, flags flags_t) {
 	defer wg.Done()
 
 	for {
@@ -257,34 +186,22 @@ func worker(logs chan []byte, flags flags_t, filters filters_t) {
 			if flags.displayErrorLines {
 				fmt.Println(err)
 			}
-		} else if filterLog(log, filters) {
-			displayLogsBasedOnFormatting(flags.formatTokens, log)
+		} else {
+			q.AddStrVar("time", log.time)
+			q.AddStrVar("ip", log.ip)
+      q.AddAtomVar("method", int(log.method))
+			q.AddStrVar("resource", log.resource)
+			q.AddStrVar("version", log.version)
+			q.AddIntVar("status", log.statusCode)
+			q.AddIntVar("size", log.size)
+			q.AddStrVar("host", log.host)
+			q.AddStrVar("agent", log.userAgent)
+
+			if q.Eval() {
+				displayLogsBasedOnFormatting(flags.formatTokens, log)
+			}
 		}
 	}
-}
-
-type filter_mode_t int
-
-const (
-	filter_mode_eq  filter_mode_t = iota
-	filter_mode_ne  filter_mode_t = iota
-	filter_mode_gt  filter_mode_t = iota
-	filter_mode_lt  filter_mode_t = iota
-	filter_mode_gte filter_mode_t = iota
-	filter_mode_lte filter_mode_t = iota
-)
-
-type filter_t[T int | method_t | string] struct {
-	active bool
-	value  T
-	mode   filter_mode_t
-}
-
-type filters_t struct {
-	statusCode filter_t[int]
-	method     filter_t[method_t]
-	ip         filter_t[string]
-	size       []filter_t[int]
 }
 
 type flags_t struct {
@@ -292,102 +209,16 @@ type flags_t struct {
 	displayErrorLines bool
 }
 
-type filter_flag_t[T int] struct {
-	flag *T
-	mode filter_mode_t
-}
-
 // TODO: create a built-in language to accept "and", "or" and queries
 // today, we only accept and operations to all filters
 func main() {
-	filters := filters_t{
-		size: make([]filter_t[int], 0, 6),
-	}
-
-	sizeEq := flag.Int("fz", -1, "filter by a specific response size. when -1 the filter is not used")
-	sizeNe := flag.Int("nefz", -1, "filter by logs where the response size is not equal to the provided one. when -1 the filter is not used")
-	sizeGt := flag.Int("gtfz", -1, "filter by logs where the response size is greater than the provided one. when -1 the filter is not used")
-	sizeLt := flag.Int("ltfz", -1, "filter by logs where the response size is less than the provided one. when -1 the filter is not used")
-	sizeGte := flag.Int("gtefz", -1, "filter by logs where the response size is greater than or equal to the provided one. when -1 the filter is not used")
-	sizeLte := flag.Int("ltefz", -1, "filter by logs where the response size is less than or equal to the provided one. when -1 the filter is not used")
-
-	status := flag.Int("fs", -1, "filter by a specific status code. when -1 the filter is not used")
-	statusNe := flag.Int("nefs", -1, "filter by logs where the status code is not equal to the provided one. when -1 the filter is not used")
-
-	method := flag.String("fm", "", "filter by a specific method")
-	methodNe := flag.String("nefm", "", "filter by logs where the method is not equal to the provided one")
-
-	ip := flag.String("fi", "", "filter by a specific ip")
+	query := flag.String("q", "", "query")
 
 	displayErrors := flag.Bool("de", false, "disable error lines output")
 
 	format := flag.String("f", "%time %ip %method %resource %version %status %size %host %agent", "format the log in a specific way")
 
 	flag.Parse()
-
-	if *status != -1 {
-		filters.statusCode.active = true
-		filters.statusCode.value = *status
-		filters.statusCode.mode = filter_mode_eq
-	}
-
-	if *statusNe != -1 {
-		filters.statusCode.active = true
-		filters.statusCode.value = *statusNe
-		filters.statusCode.mode = filter_mode_ne
-	}
-
-	sizeFlags := []filter_flag_t[int]{
-		{sizeEq, filter_mode_eq},
-		{sizeNe, filter_mode_ne},
-		{sizeGt, filter_mode_gt},
-		{sizeLt, filter_mode_lt},
-		{sizeGte, filter_mode_gte},
-		{sizeLte, filter_mode_lte},
-	}
-
-	for _, flag := range sizeFlags {
-		if *flag.flag != -1 {
-			filters.size = append(filters.size, filter_t[int]{
-				active: true,
-				value:  *flag.flag,
-				mode:   flag.mode,
-			})
-		}
-	}
-
-	if *method != "" {
-		if parsedMethod, err := stringMethodToType(*method); err == nil {
-			filters.method.active = true
-			filters.method.value = parsedMethod
-			filters.method.mode = filter_mode_eq
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if *methodNe != "" {
-		if parsedMethod, err := stringMethodToType(*methodNe); err == nil {
-			filters.method.active = true
-			filters.method.value = parsedMethod
-			filters.method.mode = filter_mode_ne
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if *ip != "" {
-		if isValidIP(*ip) {
-			filters.ip.active = true
-			filters.ip.value = *ip
-			filters.ip.mode = filter_mode_eq
-		} else {
-			fmt.Fprintf(os.Stderr, "error: invalid ip format\n")
-			os.Exit(1)
-		}
-	}
 
 	logFormatter := formatter.CreateFormatter([]string{"time", "ip", "method", "resource", "version", "status", "size", "host", "agent"})
 
@@ -398,6 +229,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	q, err := quang.CreateQuang(*query)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+  q.AddAtom("get", int(http_get))
+  q.AddAtom("GET", int(http_get))
+  q.AddAtom("post", int(http_post))
+  q.AddAtom("POST", int(http_post))
+  q.AddAtom("delete", int(http_delete))
+  q.AddAtom("DELETE", int(http_delete))
+  q.AddAtom("patch", int(http_patch))
+  q.AddAtom("PATCH", int(http_patch))
+  q.AddAtom("put", int(http_put))
+  q.AddAtom("PUT", int(http_put))
+  q.AddAtom("options", int(http_options))
+  q.AddAtom("OPTIONS", int(http_options))
+
 	logs := make(chan []byte, 0)
 
 	user_flags := flags_t{
@@ -406,7 +257,7 @@ func main() {
 	}
 
 	wg.Add(1)
-	go worker(logs, user_flags, filters)
+	go worker(logs, q, user_flags)
 
 	bytes := make([]byte, 256)
 

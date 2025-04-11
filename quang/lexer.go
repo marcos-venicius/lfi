@@ -45,6 +45,39 @@ var keywords = map[string]lexer_token_kind_t{
 	"lte": ltk_lte_keyword,
 }
 
+func (ltk lexer_token_kind_t) string() string {
+	switch ltk {
+	case ltk_open_parenthesis:
+		return "open_parenthesis"
+	case ltk_close_parenthesis:
+		return "close_parenthesis"
+	case ltk_and_keyword:
+		return "and_keyword"
+	case ltk_or_keyword:
+		return "or_keyword"
+	case ltk_eq_keyword:
+		return "eq_keyword"
+	case ltk_ne_keyword:
+		return "ne_keyword"
+	case ltk_gt_keyword:
+		return "gt_keyword"
+	case ltk_lt_keyword:
+		return "lt_keyword"
+	case ltk_gte_keyword:
+		return "gte_keyword"
+	case ltk_lte_keyword:
+		return "lte_keyword"
+	case ltk_symbol:
+		return "symbol"
+	case ltk_integer:
+		return "integer"
+	case ltk_atom:
+		return "atom"
+	}
+
+	panic("invalid token kind")
+}
+
 func createLexer(content string) lexer_t {
 	return lexer_t{
 		content: content,

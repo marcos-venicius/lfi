@@ -6,8 +6,10 @@ It's a built-in language that will serve as the tool language to make queries an
 
 The language should be able to have a syntax like:
 
-```lua
+```elixir
 (size gt 0 and size lt 1024 and method eq :get and status eq 200) or (method eq :post and size eq 0 and status eq 204)
+size gt 0
+(((size gt 0) and (size lt 1024)) or (1 eq 1)) and method eq :get
 ```
 
 - Symbols (name, size, asdflk)

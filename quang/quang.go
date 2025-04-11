@@ -1,23 +1,17 @@
 package quang
 
-type QuangVariables struct {
-	ip         string
-	time       string
-	method     string
-	host       string
-	resource   string
-	version    string
-	statusCode int
-	size       int
-	userAgent  string
-}
-
 type Quang struct {
-	expression any // AST ready to eval
+	expression *expression_t
+	variables  map[string]variable_t
+	atoms      map[string]int
+	tokens     []lexer_token_t
 }
 
 func CreateQuang(expression string) (Quang, error) {
-	quang := Quang{}
+	quang := Quang{
+		variables: make(map[string]variable_t),
+		atoms:     make(map[string]int),
+	}
 
 	l := createLexer(expression)
 
@@ -25,13 +19,137 @@ func CreateQuang(expression string) (Quang, error) {
 		return quang, err
 	}
 
-	// parse
-	// save the parsed structure to the `quange`
+	quang.tokens = l.tokens
 
 	return quang, nil
 }
 
-// TODO: implement the parser
-func (q Quang) Eval(variables QuangVariables) bool {
-	return false
+func (q *Quang) AddAtom(name string, value int) {
+	if _, ok := q.atoms[name]; ok {
+		panic("you already have this atom")
+	}
+
+	q.atoms[name] = value
+}
+
+func (q *Quang) AddIntVar(name string, value int) *Quang {
+	q.variables[name] = variable_t{
+		dtype:   type_integer,
+		integer: value,
+	}
+
+	return q
+}
+
+func (q *Quang) AddAtomVar(name string, value int) *Quang {
+	q.variables[name] = variable_t{
+		dtype: type_atom,
+		atom:  value,
+	}
+
+	return q
+}
+
+func (q *Quang) AddStrVar(name string, value string) *Quang {
+  // TODO: implement strings
+	return q
+}
+
+func (q *Quang) ClearState() *Quang {
+	q.variables = make(map[string]variable_t)
+	q.atoms = make(map[string]int)
+
+	return q
+}
+
+func cmpStrToStr(left *expression_t, op expression_operator_t, right *expression_t) bool {
+	l := left.atom
+	r := right.atom
+
+	switch op {
+	case eo_eq:
+		return l == r
+	case eo_ne:
+		return l != r
+	case eo_lt:
+		return l < r
+	case eo_gt:
+		return l > r
+	case eo_lte:
+		return l <= r
+	case eo_gte:
+		return l >= r
+	}
+
+	panic("unreacheable: invalid operator")
+}
+
+func cmpStrToInt(left *expression_t, right *expression_t) bool {
+	panic("cannot compare different types")
+}
+
+func cmpIntToInt(left *expression_t, op expression_operator_t, right *expression_t) bool {
+	l := left.number
+	r := right.number
+
+	switch op {
+	case eo_eq:
+		return l == r
+	case eo_ne:
+		return l != r
+	case eo_lt:
+		return l < r
+	case eo_gt:
+		return l > r
+	case eo_lte:
+		return l <= r
+	case eo_gte:
+		return l >= r
+	}
+
+	panic("unreacheable: invalid operator")
+}
+
+func cmpIntToStr(left *expression_t, right *expression_t) bool {
+	panic("cannot compare different types")
+}
+
+func (q Quang) eval(expr *expression_t) bool {
+	if expr.kind == expr_binary {
+		if expr.binary.operator == eo_or {
+			return q.eval(expr.binary.left) || q.eval(expr.binary.right)
+		} else if expr.binary.operator == eo_and {
+			return q.eval(expr.binary.left) && q.eval(expr.binary.right)
+		}
+
+		left := expr.binary.left
+		right := expr.binary.right
+
+		if left.kind == expr_number && right.kind == expr_number {
+			return cmpIntToInt(left, expr.binary.operator, right)
+		} else if left.kind == expr_number && right.kind == expr_atom {
+			return cmpIntToStr(left, right)
+		} else if left.kind == expr_atom && right.kind == expr_atom {
+			return cmpStrToStr(left, expr.binary.operator, right)
+		} else if left.kind == expr_atom && right.kind == expr_number {
+			return cmpStrToInt(left, right)
+		}
+	}
+
+	panic("unreacheable")
+}
+
+// TODO: implement the parser with lazy eval to parse only once and then, when evaluating
+//
+//	load the variables and try to validate the types
+func (q Quang) Eval() bool {
+	p := createParser(q.tokens, q.variables, q.atoms)
+
+	q.expression = p.parseExpression()
+
+	if q.expression == nil {
+		return true
+	}
+
+	return q.eval(q.expression)
 }
