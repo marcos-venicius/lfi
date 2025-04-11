@@ -25,6 +25,8 @@ type expression_t struct {
 
 	atom int
 
+	string string
+
 	binary *binary_expression_t
 }
 
@@ -33,6 +35,7 @@ type variable_t struct {
 
 	integer int
 	atom    int
+	string  string
 }
 
 type parser_t struct {
@@ -45,6 +48,7 @@ type parser_t struct {
 const (
 	expr_number expression_kind_t = iota
 	expr_atom
+	expr_string
 	expr_binary
 	expr_comparison
 )
@@ -52,10 +56,12 @@ const (
 const (
 	type_integer data_type_t = iota
 	type_atom
+	type_string
 )
 
 const (
 	eo_eq expression_operator_t = iota
+	eo_reg
 	eo_ne
 	eo_gt
 	eo_lt
@@ -67,6 +73,8 @@ const (
 
 func lexerTokenKindToExpressionOperator(kind lexer_token_kind_t) expression_operator_t {
 	switch kind {
+	case ltk_reg_keyword:
+		return eo_reg
 	case ltk_eq_keyword:
 		return eo_eq
 	case ltk_ne_keyword:
@@ -144,6 +152,11 @@ func (p *parser_t) parsePrimary() *expression_t {
 					kind: expr_atom,
 					atom: variable.atom,
 				}
+			case type_string:
+				return &expression_t{
+					kind:   expr_string,
+					string: variable.string,
+				}
 			}
 		}
 
@@ -151,7 +164,7 @@ func (p *parser_t) parsePrimary() *expression_t {
 	}
 
 	if current.kind == ltk_atom {
-    if value, ok := p.atoms[current.value[1:]]; ok {
+		if value, ok := p.atoms[current.value[1:]]; ok {
 			return &expression_t{
 				kind: expr_atom,
 				atom: value,
@@ -159,6 +172,13 @@ func (p *parser_t) parsePrimary() *expression_t {
 		}
 
 		terror(fmt.Errorf("the atom \"%s\" does not exists", current.value))
+	}
+
+	if current.kind == ltk_string {
+		return &expression_t{
+			kind:   expr_string,
+			string: current.value,
+		}
 	}
 
 	terror(fmt.Errorf("invalid syntax. unexpected token kind: %s \"%s\"", current.kind.string(), current.value))
@@ -174,7 +194,7 @@ func (p *parser_t) parseComparison() *expression_t {
 	current = p.token()
 
 	switch current.kind {
-	case ltk_eq_keyword, ltk_ne_keyword, ltk_gt_keyword, ltk_lt_keyword, ltk_gte_keyword, ltk_lte_keyword:
+	case ltk_eq_keyword, ltk_ne_keyword, ltk_gt_keyword, ltk_lt_keyword, ltk_gte_keyword, ltk_lte_keyword, ltk_reg_keyword:
 		{
 			p.current_token++
 			// TODO: validate data types

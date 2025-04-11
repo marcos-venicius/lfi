@@ -1,5 +1,7 @@
 package quang
 
+import "regexp"
+
 type Quang struct {
 	expression *expression_t
 	variables  map[string]variable_t
@@ -51,7 +53,11 @@ func (q *Quang) AddAtomVar(name string, value int) *Quang {
 }
 
 func (q *Quang) AddStrVar(name string, value string) *Quang {
-  // TODO: implement strings
+	q.variables[name] = variable_t{
+		dtype:  type_string,
+		string: value,
+	}
+
 	return q
 }
 
@@ -63,10 +69,12 @@ func (q *Quang) ClearState() *Quang {
 }
 
 func cmpStrToStr(left *expression_t, op expression_operator_t, right *expression_t) bool {
-	l := left.atom
-	r := right.atom
+	l := left.string
+	r := right.string
 
 	switch op {
+  case eo_reg:
+    return regexp.MustCompile(r).MatchString(l)
 	case eo_eq:
 		return l == r
 	case eo_ne:
@@ -84,8 +92,28 @@ func cmpStrToStr(left *expression_t, op expression_operator_t, right *expression
 	panic("unreacheable: invalid operator")
 }
 
-func cmpStrToInt(left *expression_t, right *expression_t) bool {
-	panic("cannot compare different types")
+func cmpAtomToAtom(left *expression_t, op expression_operator_t, right *expression_t) bool {
+	l := left.atom
+	r := right.atom
+
+	switch op {
+  case eo_reg:
+    panic("you cannot use regex operator in atoms")
+	case eo_eq:
+		return l == r
+	case eo_ne:
+		return l != r
+	case eo_lt:
+		return l < r
+	case eo_gt:
+		return l > r
+	case eo_lte:
+		return l <= r
+	case eo_gte:
+		return l >= r
+	}
+
+	panic("unreacheable: invalid operator")
 }
 
 func cmpIntToInt(left *expression_t, op expression_operator_t, right *expression_t) bool {
@@ -93,6 +121,8 @@ func cmpIntToInt(left *expression_t, op expression_operator_t, right *expression
 	r := right.number
 
 	switch op {
+  case eo_reg:
+    panic("you cannot use regex operator in integers")
 	case eo_eq:
 		return l == r
 	case eo_ne:
@@ -108,10 +138,6 @@ func cmpIntToInt(left *expression_t, op expression_operator_t, right *expression
 	}
 
 	panic("unreacheable: invalid operator")
-}
-
-func cmpIntToStr(left *expression_t, right *expression_t) bool {
-	panic("cannot compare different types")
 }
 
 func (q Quang) eval(expr *expression_t) bool {
@@ -127,13 +153,13 @@ func (q Quang) eval(expr *expression_t) bool {
 
 		if left.kind == expr_number && right.kind == expr_number {
 			return cmpIntToInt(left, expr.binary.operator, right)
-		} else if left.kind == expr_number && right.kind == expr_atom {
-			return cmpIntToStr(left, right)
 		} else if left.kind == expr_atom && right.kind == expr_atom {
+			return cmpAtomToAtom(left, expr.binary.operator, right)
+		} else if left.kind == expr_string && right.kind == expr_string {
 			return cmpStrToStr(left, expr.binary.operator, right)
-		} else if left.kind == expr_atom && right.kind == expr_number {
-			return cmpStrToInt(left, right)
-		}
+    }
+
+		panic("cannot compare different types")
 	}
 
 	panic("unreacheable")

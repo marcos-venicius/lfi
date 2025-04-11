@@ -23,6 +23,7 @@ const (
 	ltk_close_parenthesis lexer_token_kind_t = iota
 	ltk_and_keyword       lexer_token_kind_t = iota
 	ltk_or_keyword        lexer_token_kind_t = iota
+	ltk_reg_keyword       lexer_token_kind_t = iota
 	ltk_eq_keyword        lexer_token_kind_t = iota
 	ltk_ne_keyword        lexer_token_kind_t = iota
 	ltk_gt_keyword        lexer_token_kind_t = iota
@@ -32,11 +33,13 @@ const (
 	ltk_symbol            lexer_token_kind_t = iota
 	ltk_integer           lexer_token_kind_t = iota
 	ltk_atom              lexer_token_kind_t = iota
+	ltk_string            lexer_token_kind_t = iota
 )
 
 var keywords = map[string]lexer_token_kind_t{
 	"and": ltk_and_keyword,
 	"or":  ltk_or_keyword,
+	"reg": ltk_reg_keyword,
 	"eq":  ltk_eq_keyword,
 	"ne":  ltk_ne_keyword,
 	"gt":  ltk_gt_keyword,
@@ -55,6 +58,8 @@ func (ltk lexer_token_kind_t) string() string {
 		return "and_keyword"
 	case ltk_or_keyword:
 		return "or_keyword"
+	case ltk_reg_keyword:
+		return "reg_keyword"
 	case ltk_eq_keyword:
 		return "eq_keyword"
 	case ltk_ne_keyword:
@@ -73,6 +78,8 @@ func (ltk lexer_token_kind_t) string() string {
 		return "integer"
 	case ltk_atom:
 		return "atom"
+	case ltk_string:
+		return "string"
 	}
 
 	panic("invalid token kind")
@@ -158,6 +165,30 @@ func (l *lexer_t) lexSymbol() {
 	l.tokens = append(l.tokens, token)
 }
 
+func (l *lexer_t) lexString() error {
+	l.cursor++
+
+	// TODO: scape quotes
+	for l.cursor < len(l.content) && l.content[l.cursor] != '\'' {
+		l.cursor++
+	}
+
+	if l.content[l.cursor] != '\'' {
+		return errors.New(fmt.Sprintf("error: unterminated string at position %d", l.bot+1))
+	}
+
+	token := lexer_token_t{
+		value: l.content[l.bot+1 : l.cursor],
+		kind:  ltk_string,
+	}
+
+	l.tokens = append(l.tokens, token)
+
+	l.cursor++
+
+	return nil
+}
+
 func (l *lexer_t) lex() error {
 	for l.cursor < len(l.content) {
 		l.trimWhitespaces()
@@ -171,6 +202,10 @@ func (l *lexer_t) lex() error {
 		char := l.content[l.cursor]
 
 		switch char {
+		case '\'':
+			if err := l.lexString(); err != nil {
+				return err
+			}
 		case '(':
 			l.lexSingleChar(ltk_open_parenthesis)
 		case ')':
