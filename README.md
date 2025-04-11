@@ -2,6 +2,22 @@
 
 _LFI extends for "Log Filter", not for "Local File inclusion" :)_
 
+> [!WARNING]
+> I already have an experimental version of Quang, which is an internal language used to make queries in the logs
+> You can access by checking out [this branch](https://github.com/marcos-venicius/lfi/tree/feat/quang-experiment)
+
+_**The following version, for now, is only available in the branch [feat/quang-experiment](https://github.com/marcos-venicius/lfi/tree/feat/quang-experiment)**_
+
+https://github.com/user-attachments/assets/63e2102c-4dbb-48c0-ada2-6a12e50fe6f7
+
+**It'll be in the main soon with some improvements after all tests**
+
+If you wanna test this "beta" version, you can download as follows:
+
+```bash
+go install github.com/marcos-venicius/lfi@0.1.0.beta
+```
+
 ## Installing
 
 ```bash
