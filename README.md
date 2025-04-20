@@ -10,6 +10,8 @@ _LFI extends for "Log Filter", not for "Local File inclusion" :)_
 go install github.com/marcos-venicius/lfi@latest
 ```
 
+![image](https://github.com/user-attachments/assets/c9e68087-1bd2-4183-89af-f405cbf5ec74)
+
 ## The tool
 
 **For now, this tool can only parse kong logs format.**
