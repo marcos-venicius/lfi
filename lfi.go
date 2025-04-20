@@ -11,7 +11,27 @@ import (
 	"sync"
 
 	"github.com/marcos-venicius/lfi/formatter"
+	"github.com/marcos-venicius/quang"
 )
+
+type lfi_t struct {
+	formatTokens      []string
+	displayErrorLines bool
+
+	q *quang.Quang
+}
+
+type log_t struct {
+	ip         string
+	time       string
+	method     quang.AtomType
+	host       string
+	resource   string
+	version    string
+	statusCode quang.IntegerType
+	size       quang.IntegerType
+	userAgent  string
+}
 
 var wg sync.WaitGroup
 
@@ -23,65 +43,66 @@ var stringRegex = regexp.MustCompile(`^".*?"`)
 var statusCodeRegex = regexp.MustCompile(`^\d{3}`)
 var sizeRegex = regexp.MustCompile(`^\d+`)
 
-type method_t int
-
 const (
-	http_get     method_t = iota
-	http_post    method_t = iota
-	http_delete  method_t = iota
-	http_patch   method_t = iota
-	http_put     method_t = iota
-	http_options method_t = iota
+	http_get_atom quang.AtomType = iota
+	http_post_atom
+	http_delete_atom
+	http_patch_atom
+	http_put_atom
+	http_options_atom
+	http_head_atom
 )
 
-type log_t struct {
-	ip         string
-	time       string
-	method     method_t
-	host       string
-	resource   string
-	version    string
-	statusCode int
-	size       int
-	userAgent  string
+var atoms = map[string]quang.AtomType{
+	":get":     http_get_atom,
+	":post":    http_post_atom,
+	":delete":  http_delete_atom,
+	":patch":   http_patch_atom,
+	":put":     http_put_atom,
+	":options": http_options_atom,
+	":head":    http_head_atom,
 }
 
-func methodDisplay(method method_t) string {
+func methodDisplay(method quang.AtomType) string {
 	switch method {
-	case http_options:
+	case http_options_atom:
 		return "OPTIONS"
-	case http_get:
+	case http_get_atom:
 		return "GET"
-	case http_put:
+	case http_put_atom:
 		return "PUT"
-	case http_post:
+	case http_post_atom:
 		return "POST"
-	case http_delete:
+	case http_delete_atom:
 		return "DELETE"
-	case http_patch:
+	case http_patch_atom:
 		return "PATCH"
+	case http_head_atom:
+		return "HEAD"
 	}
 
 	return "unknown"
 }
 
-func stringMethodToType(method string) (method_t, error) {
+func stringMethodToType(method string) (quang.AtomType, error) {
 	switch method {
 	case "OPTIONS", "options":
-		return http_options, nil
+		return http_options_atom, nil
 	case "GET", "get":
-		return http_get, nil
+		return http_get_atom, nil
 	case "PUT", "put":
-		return http_put, nil
+		return http_put_atom, nil
 	case "POST", "post":
-		return http_post, nil
+		return http_post_atom, nil
 	case "DELETE", "delete":
-		return http_delete, nil
+		return http_delete_atom, nil
 	case "PATCH", "patch":
-		return http_patch, nil
+		return http_patch_atom, nil
+	case "HEAD", "head":
+		return http_head_atom, nil
 	}
 
-	return 0, errors.New("invalid status code")
+	return 0, errors.New("error: invalid method")
 }
 
 func isValidIP(ip string) bool {
@@ -110,13 +131,13 @@ func parseKongLogLine(line string) (log_t, error) {
 	log.version = matches[5]
 
 	if n, err := strconv.ParseInt(matches[6], 10, 32); err == nil {
-		log.statusCode = int(n)
+		log.statusCode = quang.IntegerType(n)
 	} else {
 		return log, err
 	}
 
 	if n, err := strconv.ParseInt(matches[7], 10, 32); err == nil {
-		log.size = int(n)
+		log.size = quang.IntegerType(n)
 	} else {
 		return log, err
 	}
@@ -126,78 +147,6 @@ func parseKongLogLine(line string) (log_t, error) {
 	log.userAgent = matches[9]
 
 	return log, nil
-}
-
-func filterLog(log log_t, filters filters_t) bool {
-	if filters.statusCode.active {
-		switch filters.statusCode.mode {
-		case filter_mode_eq:
-			if log.statusCode != filters.statusCode.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.statusCode == filters.statusCode.value {
-				return false
-			}
-		}
-	}
-
-	if filters.method.active {
-		switch filters.method.mode {
-		case filter_mode_eq:
-			if log.method != filters.method.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.method == filters.method.value {
-				return false
-			}
-		}
-	}
-
-	if filters.ip.active {
-		switch filters.ip.mode {
-		case filter_mode_eq:
-			if log.ip != filters.ip.value {
-				return false
-			}
-		case filter_mode_ne:
-			if log.ip == filters.ip.value {
-				return false
-			}
-		}
-	}
-
-	for _, sizeFilter := range filters.size {
-		switch sizeFilter.mode {
-		case filter_mode_eq:
-			if !(log.size == sizeFilter.value) {
-				return false
-			}
-		case filter_mode_ne:
-			if !(log.size != sizeFilter.value) {
-				return false
-			}
-		case filter_mode_lt:
-			if !(log.size < sizeFilter.value) {
-				return false
-			}
-		case filter_mode_gt:
-			if !(log.size > sizeFilter.value) {
-				return false
-			}
-		case filter_mode_lte:
-			if !(log.size <= sizeFilter.value) {
-				return false
-			}
-		case filter_mode_gte:
-			if !(log.size >= sizeFilter.value) {
-				return false
-			}
-		}
-	}
-
-	return true
 }
 
 func isAlpha(c byte) bool {
@@ -239,7 +188,7 @@ func displayLogsBasedOnFormatting(tokens []string, log log_t) {
 	fmt.Println()
 }
 
-func worker(logs chan []byte, flags flags_t, filters filters_t) {
+func (l lfi_t) worker(logs chan []byte) {
 	defer wg.Done()
 
 	for {
@@ -254,140 +203,39 @@ func worker(logs chan []byte, flags flags_t, filters filters_t) {
 		log, err := parseKongLogLine(lineString)
 
 		if err != nil {
-			if flags.displayErrorLines {
+			if l.displayErrorLines {
 				fmt.Println(err)
 			}
-		} else if filterLog(log, filters) {
-			displayLogsBasedOnFormatting(flags.formatTokens, log)
+		} else {
+			l.q.AddStringVar("time", log.time).
+				AddStringVar("ip", log.ip).
+				AddAtomVar("method", log.method).
+				AddStringVar("resource", log.resource).
+				AddStringVar("version", log.version).
+				AddIntegerVar("status", log.statusCode).
+				AddIntegerVar("size", log.size).
+				AddStringVar("host", log.host).
+				AddStringVar("agent", log.userAgent)
+
+			show, err := l.q.Eval()
+
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+
+			if show {
+				displayLogsBasedOnFormatting(l.formatTokens, log)
+			}
 		}
 	}
 }
 
-type filter_mode_t int
-
-const (
-	filter_mode_eq  filter_mode_t = iota
-	filter_mode_ne  filter_mode_t = iota
-	filter_mode_gt  filter_mode_t = iota
-	filter_mode_lt  filter_mode_t = iota
-	filter_mode_gte filter_mode_t = iota
-	filter_mode_lte filter_mode_t = iota
-)
-
-type filter_t[T int | method_t | string] struct {
-	active bool
-	value  T
-	mode   filter_mode_t
-}
-
-type filters_t struct {
-	statusCode filter_t[int]
-	method     filter_t[method_t]
-	ip         filter_t[string]
-	size       []filter_t[int]
-}
-
-type flags_t struct {
-	formatTokens      []string
-	displayErrorLines bool
-}
-
-type filter_flag_t[T int] struct {
-	flag *T
-	mode filter_mode_t
-}
-
-// TODO: create a built-in language to accept "and", "or" and queries
-// today, we only accept and operations to all filters
 func main() {
-	filters := filters_t{
-		size: make([]filter_t[int], 0, 6),
-	}
-
-	sizeEq := flag.Int("fz", -1, "filter by a specific response size. when -1 the filter is not used")
-	sizeNe := flag.Int("nefz", -1, "filter by logs where the response size is not equal to the provided one. when -1 the filter is not used")
-	sizeGt := flag.Int("gtfz", -1, "filter by logs where the response size is greater than the provided one. when -1 the filter is not used")
-	sizeLt := flag.Int("ltfz", -1, "filter by logs where the response size is less than the provided one. when -1 the filter is not used")
-	sizeGte := flag.Int("gtefz", -1, "filter by logs where the response size is greater than or equal to the provided one. when -1 the filter is not used")
-	sizeLte := flag.Int("ltefz", -1, "filter by logs where the response size is less than or equal to the provided one. when -1 the filter is not used")
-
-	status := flag.Int("fs", -1, "filter by a specific status code. when -1 the filter is not used")
-	statusNe := flag.Int("nefs", -1, "filter by logs where the status code is not equal to the provided one. when -1 the filter is not used")
-
-	method := flag.String("fm", "", "filter by a specific method")
-	methodNe := flag.String("nefm", "", "filter by logs where the method is not equal to the provided one")
-
-	ip := flag.String("fi", "", "filter by a specific ip")
-
 	displayErrors := flag.Bool("de", false, "disable error lines output")
-
 	format := flag.String("f", "%time %ip %method %resource %version %status %size %host %agent", "format the log in a specific way")
+	query := flag.String("q", "", "provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.\navailable variables: time, ip, method, resource, version, status, size, host, agent.\navailable method atoms :get, :post, :delete, :patch, :put, :options.")
 
 	flag.Parse()
-
-	if *status != -1 {
-		filters.statusCode.active = true
-		filters.statusCode.value = *status
-		filters.statusCode.mode = filter_mode_eq
-	}
-
-	if *statusNe != -1 {
-		filters.statusCode.active = true
-		filters.statusCode.value = *statusNe
-		filters.statusCode.mode = filter_mode_ne
-	}
-
-	sizeFlags := []filter_flag_t[int]{
-		{sizeEq, filter_mode_eq},
-		{sizeNe, filter_mode_ne},
-		{sizeGt, filter_mode_gt},
-		{sizeLt, filter_mode_lt},
-		{sizeGte, filter_mode_gte},
-		{sizeLte, filter_mode_lte},
-	}
-
-	for _, flag := range sizeFlags {
-		if *flag.flag != -1 {
-			filters.size = append(filters.size, filter_t[int]{
-				active: true,
-				value:  *flag.flag,
-				mode:   flag.mode,
-			})
-		}
-	}
-
-	if *method != "" {
-		if parsedMethod, err := stringMethodToType(*method); err == nil {
-			filters.method.active = true
-			filters.method.value = parsedMethod
-			filters.method.mode = filter_mode_eq
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if *methodNe != "" {
-		if parsedMethod, err := stringMethodToType(*methodNe); err == nil {
-			filters.method.active = true
-			filters.method.value = parsedMethod
-			filters.method.mode = filter_mode_ne
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if *ip != "" {
-		if isValidIP(*ip) {
-			filters.ip.active = true
-			filters.ip.value = *ip
-			filters.ip.mode = filter_mode_eq
-		} else {
-			fmt.Fprintf(os.Stderr, "error: invalid ip format\n")
-			os.Exit(1)
-		}
-	}
 
 	logFormatter := formatter.CreateFormatter([]string{"time", "ip", "method", "resource", "version", "status", "size", "host", "agent"})
 
@@ -398,15 +246,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	q, err := quang.Init(*query)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	q.SetupAtoms(atoms)
+
 	logs := make(chan []byte, 0)
 
-	user_flags := flags_t{
+	lfi := lfi_t{
 		formatTokens:      tokens,
 		displayErrorLines: !*displayErrors,
+		q:                 q,
 	}
 
 	wg.Add(1)
-	go worker(logs, user_flags, filters)
+	go lfi.worker(logs)
 
 	bytes := make([]byte, 256)
 
