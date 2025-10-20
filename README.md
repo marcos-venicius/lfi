@@ -51,6 +51,23 @@ To add strings, you can just use `'this is a string'`. To escape them, you can d
 
 Line breaks with `\n`. Tabs with `\t`. And you can Add as many spaces as you want.
 
+### Config file
+
+By default a config file will be created at your user directory named `.lfi` with the following content:
+
+```
+regex = ^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) .* .* \[(\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4})\] "(\w+) (.*?) (HTTP\/\d.\d)" (\d+|-) (\d+|-) "(.*?)" "(.*?)"$
+order = [:ip, :time, :method, :resource, :http_version, :status_code, :request_size, :host, :user_agent]
+```
+
+the first config line (`regex`) describes the format in regex of one log line.
+this line should have groups for each category of data we have available (`:ip, :time, :method, :resource, :http_version, :status_code, :request_size, :host, :user_agent`).
+the second config line (`order`) says the order or the groups.
+for example, if in your scenario the `:time` is the first group instead of `:ip` you should update the regex and the position of this two groups by swaping them.
+this will make the program recognize all groups correctly so later you can format or query them.
+
+the `order` config should always contains all the groups, nothing more, nothing less, otherwise the program will return an error to you.
+
 ### Query building
 
 This tool is using [Quang](https://github.com/marcos-venicius/quang) as a query builder, so, you can read more in the docs.
