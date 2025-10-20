@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -35,7 +36,7 @@ type log_t struct {
 
 var wg sync.WaitGroup
 
-var kongLogRegex = regexp.MustCompile(`^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) - - \[(\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4})\] "(\w+) (.*?) (HTTP\/\d.\d)" (\d+) (\d+) "(.*?)" "(.*?)"$`)
+var kongLogRegex = regexp.MustCompile(`^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) .* .* \[(\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4})\] "(\w+) (.*?) (HTTP\/\d.\d)" (\d+|-) (\d+|-) "(.*?)" "(.*?)"$`)
 var ipRegex = regexp.MustCompile(`^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}`)
 var ipRegexFull = regexp.MustCompile(`^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}$`)
 var timeRegex = regexp.MustCompile(`\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4}`)
@@ -105,52 +106,60 @@ func stringMethodToType(method string) (quang.AtomType, error) {
 	return 0, errors.New("error: invalid method")
 }
 
-func isValidIP(ip string) bool {
-	return ipRegexFull.MatchString(ip)
-}
-
-func parseKongLogLine(line string) (log_t, error) {
+func parseKongLogLine(line string, breakParamsOut bool, configs *Configs) (log_t, error) {
 	log := log_t{}
 
-	matches := kongLogRegex.FindStringSubmatch(line)
+	positions := make(map[order_t]int)
+
+	for p, key := range configs.order {
+		positions[key] = p + 1
+	}
+
+	matches := configs.regex.FindStringSubmatch(line)
 
 	if len(matches) != 10 {
 		return log, errors.New(line)
 	}
 
-	log.ip = matches[1]
-	log.time = matches[2]
+	log.ip = matches[positions[ORDER_IP]]
+	log.time = matches[positions[ORDER_TIME]]
 
-	if method, err := stringMethodToType(matches[3]); err == nil {
+	if method, err := stringMethodToType(matches[positions[ORDER_METHOD]]); err == nil {
 		log.method = method
 	} else {
 		return log, err
 	}
 
-	log.resource = matches[4]
-	log.version = matches[5]
+	if breakParamsOut {
+		parsed, err := url.Parse(matches[positions[ORDER_RESOURCE]])
 
-	if n, err := strconv.ParseInt(matches[6], 10, 32); err == nil {
+		if err != nil {
+			return log, err
+		}
+
+		log.resource = parsed.Path
+	} else {
+		log.resource = matches[positions[ORDER_RESOURCE]]
+	}
+	log.version = matches[positions[ORDER_HTTP_VERSION]]
+
+	if n, err := strconv.ParseInt(matches[positions[ORDER_STATUS_CODE]], 10, 32); err == nil {
 		log.statusCode = quang.IntegerType(n)
 	} else {
-		return log, err
+		log.statusCode = 0
 	}
 
-	if n, err := strconv.ParseInt(matches[7], 10, 32); err == nil {
+	if n, err := strconv.ParseInt(matches[positions[ORDER_REQUEST_SIZE]], 10, 32); err == nil {
 		log.size = quang.IntegerType(n)
 	} else {
-		return log, err
+		log.size = 0
 	}
 
-	log.host = matches[8]
+	log.host = matches[positions[ORDER_HOST]]
 
-	log.userAgent = matches[9]
+	log.userAgent = matches[positions[ORDER_USER_AGENT]]
 
 	return log, nil
-}
-
-func isAlpha(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 func displayLogsBasedOnFormatting(tokens []string, log log_t) {
@@ -188,7 +197,7 @@ func displayLogsBasedOnFormatting(tokens []string, log log_t) {
 	fmt.Println()
 }
 
-func (l lfi_t) worker(logs chan []byte) {
+func (l lfi_t) worker(logs chan []byte, breakParamsOut bool, configs *Configs) {
 	defer wg.Done()
 
 	for {
@@ -200,7 +209,7 @@ func (l lfi_t) worker(logs chan []byte) {
 
 		lineString := string(line)
 
-		log, err := parseKongLogLine(lineString)
+		log, err := parseKongLogLine(lineString, breakParamsOut, configs)
 
 		if err != nil {
 			if l.displayErrorLines {
@@ -234,8 +243,17 @@ func main() {
 	displayErrors := flag.Bool("de", false, "disable error lines output")
 	format := flag.String("f", "%time %ip %method %resource %version %status %size %host %agent", "format the log in a specific way")
 	query := flag.String("q", "", "provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.\navailable variables: time, ip, method, resource, version, status, size, host, agent.\navailable method atoms :get, :post, :delete, :patch, :put, :options.")
+	breakParamsOut := flag.Bool("b", false, "break params out of resource")
 
 	flag.Parse()
+
+	configs, err := LoadConfigs()
+
+	if err != nil {
+		fmt.Println(err)
+
+		os.Exit(1)
+	}
 
 	logFormatter := formatter.CreateFormatter([]string{"time", "ip", "method", "resource", "version", "status", "size", "host", "agent"})
 
@@ -264,7 +282,7 @@ func main() {
 	}
 
 	wg.Add(1)
-	go lfi.worker(logs)
+	go lfi.worker(logs, *breakParamsOut, configs)
 
 	bytes := make([]byte, 256)
 
