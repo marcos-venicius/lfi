@@ -16,8 +16,8 @@ import (
 )
 
 type lfi_t struct {
-	formatTokens      []string
-	displayErrorLines bool
+	formatTokens []string
+	verbose      bool
 
 	q *quang.Quang
 }
@@ -212,7 +212,7 @@ func (l lfi_t) worker(logs chan []byte, breakParamsOut bool, configs *Configs) {
 		log, err := parseKongLogLine(lineString, breakParamsOut, configs)
 
 		if err != nil {
-			if l.displayErrorLines {
+			if l.verbose {
 				fmt.Println(err)
 			}
 		} else {
@@ -252,10 +252,10 @@ func isFlagParsed(name string) bool {
 }
 
 func main() {
-	displayErrors := flag.Bool("de", false, "disable error lines output")
+	verbose := flag.Bool("v", false, "when verbose mode is activated all errors will be shown")
 	format := flag.String("f", defaultFormatting, "format the log in a specific way")
 	query := flag.String("q", "", "provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.\navailable variables: time, ip, method, resource, version, status, size, host, agent.\navailable method atoms :get, :post, :delete, :patch, :put, :options.")
-	breakParamsOut := flag.Bool("b", false, "break params out of resource")
+	breakParamsOut := flag.Bool("s", false, "strip out params from resource. everything like 'url<?param=value>' is going to be removed")
 
 	flag.Parse()
 
@@ -294,9 +294,9 @@ func main() {
 	logs := make(chan []byte, 0)
 
 	lfi := lfi_t{
-		formatTokens:      tokens,
-		displayErrorLines: !*displayErrors,
-		q:                 q,
+		formatTokens: tokens,
+		verbose:      *verbose,
+		q:            q,
 	}
 
 	wg.Add(1)
