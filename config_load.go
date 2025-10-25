@@ -27,12 +27,14 @@ const (
 const MAX_CONFIG_FILE_SIZE = 1024
 
 type Configs struct {
-	regex *regexp.Regexp
-	order []order_t
+	regex  *regexp.Regexp
+	order  []order_t
+	format string
 }
 
 var configFileName = ".lfi"
 var defaultLogRegex = regexp.MustCompile(`^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) .* .* \[(\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4})\] "(\w+) (.*?) (HTTP\/\d.\d)" (\d+|-) (\d+|-) "(.*?)" "(.*?)"$`)
+var defaultFormatting = "%time %ip %method %resource %version %status %size %host %agent"
 var defaultOrder = []order_t{
 	ORDER_IP,
 	ORDER_TIME,
@@ -125,6 +127,10 @@ func (c Configs) writeToConfigFile(configFilePath string) error {
 
 	file.WriteString("]\n")
 
+	file.WriteString("format = ")
+	file.WriteString(c.format)
+	file.WriteString("\n")
+
 	return file.Close()
 }
 
@@ -140,8 +146,9 @@ func getFileSize(filePath string) (int64, error) {
 
 func LoadConfigs() (*Configs, error) {
 	configs := Configs{
-		regex: defaultLogRegex,
-		order: defaultOrder,
+		regex:  defaultLogRegex,
+		order:  defaultOrder,
+		format: defaultFormatting,
 	}
 
 	userHomeDir, err := os.UserHomeDir()
@@ -197,13 +204,18 @@ func LoadConfigs() (*Configs, error) {
 
 		if len(key) == 0 {
 			return nil, fmt.Errorf("%s:%d error: missing key", configFilePath, number+1)
-		} else if key == "regex" {
-			value := strings.TrimSpace(line[equalIndex+1:])
+		}
+
+		value := strings.TrimSpace(line[equalIndex+1:])
+
+		switch key {
+		case "regex":
+			if len(value) == 0 {
+				return nil, fmt.Errorf("%s:%d error: missing value for regex", configFilePath, number+1)
+			}
 
 			configs.regex = regexp.MustCompile(value)
-		} else if key == "order" {
-			value := strings.TrimSpace(line[equalIndex+1:])
-
+		case "order":
 			order, err := parseOrderArray(configFilePath, number+1, value)
 
 			if err != nil {
@@ -211,7 +223,9 @@ func LoadConfigs() (*Configs, error) {
 			}
 
 			configs.order = order
-		} else {
+		case "format":
+			configs.format = value
+		default:
 			return nil, fmt.Errorf("%s:%d error: invalid config key \"%s\"", configFilePath, number+1, key)
 		}
 	}
@@ -223,7 +237,7 @@ func parseOrderArray(configFilePath string, lineNumber int, content string) ([]o
 	order := make([]order_t, 0, ORDER_COUNT)
 
 	if len(content) == 0 {
-		return order, nil
+		return []order_t{}, fmt.Errorf("%s:%d error: please specify a value to the order", configFilePath, lineNumber)
 	}
 
 	cursor := 0

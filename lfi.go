@@ -239,9 +239,21 @@ func (l lfi_t) worker(logs chan []byte, breakParamsOut bool, configs *Configs) {
 	}
 }
 
+func isFlagParsed(name string) bool {
+	found := false
+
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+
+	return found
+}
+
 func main() {
 	displayErrors := flag.Bool("de", false, "disable error lines output")
-	format := flag.String("f", "%time %ip %method %resource %version %status %size %host %agent", "format the log in a specific way")
+	format := flag.String("f", defaultFormatting, "format the log in a specific way")
 	query := flag.String("q", "", "provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.\navailable variables: time, ip, method, resource, version, status, size, host, agent.\navailable method atoms :get, :post, :delete, :patch, :put, :options.")
 	breakParamsOut := flag.Bool("b", false, "break params out of resource")
 
@@ -257,7 +269,13 @@ func main() {
 
 	logFormatter := formatter.CreateFormatter([]string{"time", "ip", "method", "resource", "version", "status", "size", "host", "agent"})
 
-	tokens, err := logFormatter.ParseFormatString(*format)
+	var formatting string = configs.format
+
+	if isFlagParsed("f") {
+		formatting = *format
+	}
+
+	tokens, err := logFormatter.ParseFormatString(formatting)
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
