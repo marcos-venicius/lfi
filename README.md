@@ -20,14 +20,16 @@ We have some initial options:
 
 ```bash
 Usage of ./lfi:
-  -de
-        disable error lines output
   -f string
         format the log in a specific way (default "%time %ip %method %resource %version %status %size %host %agent")
   -q string
         provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.
         available variables: time, ip, method, resource, version, status, size, host, agent.
         available method atoms :get, :post, :delete, :patch, :put, :options.
+  -s    strip out params from resource. everything like 'url<?param=value>' is going to be removed
+  -t int
+        timeout between logs. it's usefull when yours logs are crazingly fast. specify it in milliseconds
+  -v    when verbose mode is activated all errors will be shown
 ```
 
 # Documentation
