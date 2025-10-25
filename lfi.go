@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/marcos-venicius/lfi/formatter"
 	"github.com/marcos-venicius/quang"
@@ -43,6 +44,8 @@ var timeRegex = regexp.MustCompile(`\d{1,2}\/\w+\/\d{4}:\d{2}:\d{2}:\d{2} \+\d{4
 var stringRegex = regexp.MustCompile(`^".*?"`)
 var statusCodeRegex = regexp.MustCompile(`^\d{3}`)
 var sizeRegex = regexp.MustCompile(`^\d+`)
+var logsTimeout = 0
+var lastUpdateTime = time.Now().UnixMilli()
 
 const (
 	http_get_atom quang.AtomType = iota
@@ -233,6 +236,19 @@ func (l lfi_t) worker(logs chan []byte, breakParamsOut bool, configs *Configs) {
 			}
 
 			if show {
+				if logsTimeout != 0 {
+					now := time.Now().UnixMilli()
+					diff := int(now - lastUpdateTime)
+
+					if diff < logsTimeout {
+						remaining := logsTimeout - diff
+
+						time.Sleep(time.Duration(remaining) * time.Millisecond)
+
+						lastUpdateTime = time.Now().UnixMilli()
+					}
+				}
+
 				displayLogsBasedOnFormatting(l.formatTokens, log)
 			}
 		}
@@ -254,10 +270,13 @@ func isFlagParsed(name string) bool {
 func main() {
 	verbose := flag.Bool("v", false, "when verbose mode is activated all errors will be shown")
 	format := flag.String("f", defaultFormatting, "format the log in a specific way")
+	timeout := flag.Int("t", 0, "timeout between logs. it's usefull when yours logs are crazingly fast. specify it in milliseconds")
 	query := flag.String("q", "", "provide any valid filter using quang syntax https://github.com/marcos-venicius/quang.\navailable variables: time, ip, method, resource, version, status, size, host, agent.\navailable method atoms :get, :post, :delete, :patch, :put, :options.")
 	breakParamsOut := flag.Bool("s", false, "strip out params from resource. everything like 'url<?param=value>' is going to be removed")
 
 	flag.Parse()
+
+	logsTimeout = *timeout
 
 	configs, err := LoadConfigs()
 
